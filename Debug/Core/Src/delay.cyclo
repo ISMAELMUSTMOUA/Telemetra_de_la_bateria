@@ -1,0 +1,2 @@
+../Core/Src/delay.c:57:6:udelay	1
+../Core/Src/delay.c:69:6:mdelay	2

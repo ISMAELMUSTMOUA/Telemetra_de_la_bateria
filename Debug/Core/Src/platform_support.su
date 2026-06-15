@@ -1,0 +1,4 @@
+../Core/Src/platform_support.c:63:5:__io_putchar	16	static
+../Core/Src/platform_support.c:77:5:__io_getchar	16	static
+../Core/Src/platform_support.c:89:9:getchar_nonblocking	16	static
+../Core/Src/platform_support.c:106:6:toggle_activity_led	8	static

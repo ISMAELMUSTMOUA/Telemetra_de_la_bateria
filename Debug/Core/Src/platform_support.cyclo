@@ -1,0 +1,4 @@
+../Core/Src/platform_support.c:63:5:__io_putchar	1
+../Core/Src/platform_support.c:77:5:__io_getchar	1
+../Core/Src/platform_support.c:89:9:getchar_nonblocking	2
+../Core/Src/platform_support.c:106:6:toggle_activity_led	1
