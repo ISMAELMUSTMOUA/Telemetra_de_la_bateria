@@ -60,7 +60,7 @@ POSSIBILITY OF SUCH DAMAGE.
  * DEFINICIÓN FÍSICA DE LOS RELÉS
  * ======================================================= */
 #define RELAY_PORT           GPIOC
-#define RELAY_PRECARGA_Pin   GPIO_PIN_10  // PC10
+#define RELAY_FAN_Pin        GPIO_PIN_10  // PC10
 #define RELAY_MAIN_POS_Pin   GPIO_PIN_11  // PC11
 #define RELAY_MAIN_NEG_Pin   GPIO_PIN_12  // PC12
 
@@ -101,56 +101,73 @@ uint8_t target_relay_state = 0;  // Orden del Master: 1 (Encender), 0 (Apagar)
 uint8_t current_relay_state = 0; // Estado real de los pines
 
 /**
- * @brief Ejecuta la secuencia de precarga de alta tensión sin bloquear la CPU
+ * @brief Ejecuta la conexión de alta tensión (Contactores principales)
  */
 void Run_Relay_StateMachine(void)
 {
-    static uint8_t relay_step = 0;
-    static uint32_t timer_precarga = 0;
-
     /* --- SECUENCIA DE ENCENDIDO --- */
     if (target_relay_state == 1 && current_relay_state == 0) {
-        switch (relay_step) {
-            case 0: // 1. Cerrar Relé de Precarga (PC10)
-                HAL_GPIO_WritePin(RELAY_PORT, RELAY_PRECARGA_Pin, GPIO_PIN_SET);
-                timer_precarga = HAL_GetTick();
-                relay_step = 1;
-                printf("RELES: PC10 (Precarga) cerrado. Cargando...\r\n");
-                break;
 
-            case 1: // 2. Esperar 500 ms (Ajustable según el coche)
-                if (HAL_GetTick() - timer_precarga >= 500) {
-                    relay_step = 2;
-                }
-                break;
-
-            case 2: // 3. Cerrar Relés Principales (PC11 y PC12)
-                HAL_GPIO_WritePin(RELAY_PORT, RELAY_MAIN_POS_Pin | RELAY_MAIN_NEG_Pin, GPIO_PIN_SET);
-                timer_precarga = HAL_GetTick();
-                relay_step = 3;
-                printf("RELES: PC11 y PC12 cerrados. Alta tension activa.\r\n");
-                break;
-
-            case 3: // 4. Esperar 50ms mecánicos y soltar Precarga (PC10)
-                if (HAL_GetTick() - timer_precarga >= 50) {
-                    HAL_GPIO_WritePin(RELAY_PORT, RELAY_PRECARGA_Pin, GPIO_PIN_RESET);
-                    current_relay_state = 1;
-                    relay_step = 0;
-                    printf("RELES: PC10 abierto. Secuencia completada.\r\n");
-                }
-                break;
-        }
+        // Cerramos Contactores Positivo y Negativo a la vez
+        HAL_GPIO_WritePin(RELAY_PORT, RELAY_MAIN_POS_Pin | RELAY_MAIN_NEG_Pin, GPIO_PIN_SET);
+        current_relay_state = 1;
+        printf("CONTACTORES: PC11 y PC12 cerrados. Alta tension ACTIVA.\r\n");
     }
     /* --- SECUENCIA DE APAGADO DE EMERGENCIA --- */
     else if (target_relay_state == 0 && current_relay_state == 1) {
 
-        // El coche pide apagar: Abrimos PC10, PC11 y PC12 de golpe por seguridad
-        HAL_GPIO_WritePin(RELAY_PORT, RELAY_PRECARGA_Pin | RELAY_MAIN_POS_Pin | RELAY_MAIN_NEG_Pin, GPIO_PIN_RESET);
+        // Abrimos Contactores Positivo y Negativo de golpe
+        HAL_GPIO_WritePin(RELAY_PORT, RELAY_MAIN_POS_Pin | RELAY_MAIN_NEG_Pin, GPIO_PIN_RESET);
         current_relay_state = 0;
-        relay_step = 0;
-        printf("RELES: AISLAMIENTO ACTIVO. Todos los reles abiertos.\r\n");
+        printf("CONTACTORES: AISLAMIENTO ACTIVO. Reles abiertos.\r\n");
     }
 }
+
+/**
+ * @brief Gestión Térmica Automática de los ventiladores de la batería
+ * @param temp_array Array con las temperaturas actuales de las PT100
+ */
+void Run_Thermal_Management(float *temp_array)
+{
+    static uint8_t fans_active = 0;
+    uint8_t overtemp_detected = 0;
+
+    const float TEMP_UMBRAL_ON = 35.0f;  // Arrancar ventiladores a 35ºC
+    const float TEMP_UMBRAL_OFF = 30.0f; // Apagar ventiladores al bajar a 30ºC
+
+    // Revisar si algún canal válido supera el umbral de encendido
+    for(int i = 0; i < AD7124_CHANNEL_COUNT; i++) {
+        // Ignoramos lecturas de error (999 o -999)
+        if (temp_array[i] < 150.0f && temp_array[i] >= TEMP_UMBRAL_ON) {
+            overtemp_detected = 1;
+            break;
+        }
+    }
+
+    /* Lógica con Histéresis para que los ventiladores no estén encendiendo
+       y apagando sin parar cuando la temperatura ronda los 35ºC */
+    if (overtemp_detected && !fans_active) {
+        HAL_GPIO_WritePin(RELAY_PORT, RELAY_FAN_Pin, GPIO_PIN_SET);
+        fans_active = 1;
+        printf("TERMOSTATO: Bateria caliente. Ventiladores ON.\r\n");
+    }
+    else if (!overtemp_detected && fans_active) {
+        // Solo apagamos si TODAS las celdas bajaron de 30ºC
+        uint8_t all_cool = 1;
+        for(int i = 0; i < AD7124_CHANNEL_COUNT; i++) {
+            if (temp_array[i] < 150.0f && temp_array[i] > TEMP_UMBRAL_OFF) {
+                all_cool = 0;
+                break;
+            }
+        }
+        if (all_cool) {
+            HAL_GPIO_WritePin(RELAY_PORT, RELAY_FAN_Pin, GPIO_PIN_RESET);
+            fans_active = 0;
+            printf("TERMOSTATO: Bateria enfriada. Ventiladores OFF.\r\n");
+        }
+    }
+}
+
 
 /**
  * @brief Lee el bus CAN buscando comandos del Master ECU
@@ -334,8 +351,11 @@ void ad7124_run_automated_telemetry(void)
         /* =========================================================
          * 1. GESTIÓN DE RELÉS Y ORDENES DEL MASTER
          * ========================================================= */
-        Process_Master_Commands();
-        Run_Relay_StateMachine();
+    	Process_Master_Commands();
+		Run_Relay_StateMachine();
+
+		// Control automático de refrigeración usando las mediciones del ADC
+		Run_Thermal_Management(debug_temperatures);
 
         /* =========================================================
          * 2. LECTURA Y PARSEO DEL JK BMS (RS485 a CAN)

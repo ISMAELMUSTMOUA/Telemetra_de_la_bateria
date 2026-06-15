@@ -1,6 +1,7 @@
 ../Core/Src/ad7124_console_app.c:80:9:ad7124_app_initialize	56	static
 ../Core/Src/ad7124_console_app.c:106:6:Run_Relay_StateMachine	8	static
-../Core/Src/ad7124_console_app.c:158:6:Process_Master_Commands	56	static
-../Core/Src/ad7124_console_app.c:186:10:Modbus_CRC16	24	static
-../Core/Src/ad7124_console_app.c:206:6:Request_And_Parse_JK_BMS	184	static
-../Core/Src/ad7124_console_app.c:296:6:ad7124_run_automated_telemetry	184	static
+../Core/Src/ad7124_console_app.c:130:6:Run_Thermal_Management	40	static
+../Core/Src/ad7124_console_app.c:175:6:Process_Master_Commands	56	static
+../Core/Src/ad7124_console_app.c:203:10:Modbus_CRC16	24	static
+../Core/Src/ad7124_console_app.c:223:6:Request_And_Parse_JK_BMS	184	static
+../Core/Src/ad7124_console_app.c:313:6:ad7124_run_automated_telemetry	184	static
